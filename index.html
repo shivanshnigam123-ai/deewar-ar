@@ -76,6 +76,8 @@ h1{font-family:var(--f-display);font-weight:700;font-size:clamp(52px,15vw,88px);
 /* ---------- Bottom stack ---------- */
 .bottom{position:absolute;left:0;right:0;bottom:0;display:flex;flex-direction:column;gap:10px;pointer-events:none}
 .bottom>*{pointer-events:auto}
+.roombtn{align-self:center;min-height:48px;padding:0 24px;border-radius:999px;border:0;background:var(--brass);color:var(--brass-ink);font-weight:700;font-size:15px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
+.roombtn:disabled{opacity:.7}
 .objbar{align-self:center;display:flex;flex-direction:column;gap:6px;padding:10px 10px 8px;border-radius:20px;max-width:calc(100% - 32px)}
 .objbar .meta{display:flex;justify-content:space-between;gap:12px;padding:0 6px;font-size:13px;min-width:0}
 .objbar .meta .nm{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -152,6 +154,7 @@ h1{font-family:var(--f-display);font-weight:700;font-size:clamp(52px,15vw,88px);
   </div>
 
   <div id="bottom" class="bottom" hidden>
+    <button id="btnRoom" class="roombtn xr-block" hidden>View in your room</button>
     <div id="objBar" class="objbar glass xr-block" hidden></div>
     <nav class="sheet glass xr-block" aria-label="Styling options">
       <div class="tabs" role="tablist">
@@ -171,6 +174,12 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { USDZExporter } from 'three/addons/exporters/USDZExporter.js';
+
+// iPhone / iPad cannot run WebXR. There we hand the styled room to Apple's AR Quick Look instead.
+const IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+let QL = IOS;
+try { QL = QL || document.createElement('a').relList.supports('ar'); } catch (e) {}
 
 const $ = s => document.querySelector(s);
 const clamp = (v,a,b) => Math.min(b, Math.max(a, v));
@@ -650,7 +659,9 @@ function showUI(mode){
   $('#total').hidden = mode !== 'style';
   $('#btnRescan').hidden = !(mode === 'style' && S.ar);
   $('#btnExit').textContent = S.ar ? 'Exit AR' : 'Back';
+  updateRoomBtn();
 }
+function updateRoomBtn(){ $('#btnRoom').hidden = !(S.mode === 'style' && !S.ar && QL) || !!S.placing || !!S.selected; }
 
 function renderTray(){
   document.querySelectorAll('.tab').forEach(t => t.setAttribute('aria-selected', String(t.dataset.tab === S.tab)));
@@ -668,6 +679,7 @@ function renderTray(){
 
 function renderObjBar(){
   const bar=$('#objBar'), p=S.placing, o=S.selected;
+  updateRoomBtn();
   if (!p && !o){ bar.hidden = true; return; }
   bar.hidden = false;
   const d=(p?p.obj:o).userData, c=CAT[d.catId];
@@ -933,6 +945,44 @@ function goIntro(){
   showUI('intro');
 }
 
+/* =========================================================
+   iPHONE MODE — export the styled room and open it in AR Quick Look
+   ========================================================= */
+function bakedWallTex(){   // Quick Look handles tiled textures badly, so draw the whole wall into one image
+  const wp = curWall(), ppm = 320;
+  const [c,x] = cv(Math.round(S.wallW*ppm), Math.round(WALL_H*ppm));
+  const s = wp.tile*ppm/512;
+  x.scale(s,s); x.fillStyle = x.createPattern(tileCanvas(wp.id), 'repeat'); x.fillRect(0, 0, c.width/s, c.height/s);
+  return tex(c);
+}
+async function viewInRoom(){
+  const btn = $('#btnRoom'); if (btn.disabled) return;
+  if (S.placing) cancelPlacing();
+  deselect();
+  btn.hidden = false; btn.disabled = true; btn.textContent = 'Preparing…';
+  const temp = [];
+  try {
+    const out = new THREE.Scene();
+    for (const o of items.children){ const c = o.clone(true); c.scale.setScalar(1); out.add(c); }
+    if (S.wallpaper !== 'none'){
+      const t = bakedWallTex(), g = new THREE.PlaneGeometry(S.wallW, WALL_H), m = new THREE.MeshStandardMaterial({ map:t, roughness:0.95 });
+      const w = new THREE.Mesh(g, m); w.position.set(0, WALL_H/2, -0.002); out.add(w); temp.push(t, g, m);
+    }
+    out.updateMatrixWorld(true);
+    const data = await new USDZExporter().parse(out, { quickLookCompatible:true });
+    const url = URL.createObjectURL(new Blob([data], { type:'model/vnd.usdz+zip' }));
+    const a = document.createElement('a');
+    a.rel = 'ar'; a.appendChild(document.createElement('img'));   // Quick Look needs an <img> inside the link
+    a.href = url; a.download = 'deewar-room.usdz'; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 120000);
+  } catch (err) {
+    console.error(err); toast('Could not open the AR view. Try again.');
+  } finally {
+    temp.forEach(d => d.dispose());
+    btn.disabled = false; btn.textContent = 'View in your room';
+  }
+}
+
 const down = { x:0, y:0 };
 const setPointer = e => S.pointer.set((e.clientX/innerWidth)*2-1, -(e.clientY/innerHeight)*2+1);
 renderer.domElement.addEventListener('pointerdown', e => { down.x = e.clientX; down.y = e.clientY; if (S.placing && !S.ar) setPointer(e); });
@@ -990,6 +1040,7 @@ $('#btnPreview').addEventListener('click', startPreview);
 $('#btnExit').addEventListener('click', () => { if (xrSession) xrSession.end(); else goIntro(); });
 $('#btnRescan').addEventListener('click', () => enterScan('wall'));
 $('#btnLock').addEventListener('click', lock);
+$('#btnRoom').addEventListener('click', viewInRoom);
 $('#btnAlt').addEventListener('click', () => { S.scanMethod = 'floor'; S.scanTarget = 'floor'; S.candidate = null; S.found = false; updateScanUI(); });
 document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => { S.tab = t.dataset.tab; renderTray(); $('#tray').scrollLeft = 0; }));
 $('#objBar').addEventListener('click', e => { const b = e.target.closest('[data-act]'); if (b) onAct(b.dataset.act); });
@@ -1012,6 +1063,11 @@ $('#book').innerHTML = ['blockprint','arches','cane','limewash','terrazzo','indi
   if (ok){ note.textContent = 'AR is ready on this phone. Stand 1.5–2 m from a wall with good light.'; return; }
   $('#btnAR').disabled = true;
   $('#btnAR').classList.remove('primary'); $('#btnPreview').classList.add('primary');
+  if (QL){
+    $('#btnAR').hidden = true; $('#btnPreview').textContent = 'Style a room';
+    note.textContent = 'On iPhone: style the room first, then tap "View in your room" to see it in AR.';
+    return;
+  }
   note.textContent = !window.isSecureContext
     ? 'AR needs a secure https link. Host this file (for example on Netlify) and open that link on your phone.'
     : 'This browser cannot run WebAR. Open the link in Chrome on an ARCore-supported Android phone, or use the 3D preview.';
