@@ -54,7 +54,8 @@ h1 em{font-style:normal;color:transparent;-webkit-text-stroke:2px var(--fg)}
 .actions{display:flex;gap:10px;flex-wrap:wrap}
 .btn{flex:1 1 150px;min-height:56px;border-radius:10px;border:1.5px solid var(--line);background:var(--card);font-weight:700;font-size:16px}
 .btn.primary{background:var(--yellow);color:var(--yellow-ink);border-color:transparent}
-.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn:disabled{opacity:.55;cursor:not-allowed}
+.btn.primary:disabled{background:var(--sunk);color:var(--muted);border:1.5px solid var(--line);opacity:1}
 .note{font-size:13px;color:var(--muted);margin:0;line-height:1.55;font-weight:500}
 .srcs{font-size:12px;color:var(--muted);margin:0;line-height:1.6}
 
@@ -74,6 +75,18 @@ h1 em{font-style:normal;color:transparent;-webkit-text-stroke:2px var(--fg)}
 .scanbar{position:absolute;left:0;right:0;bottom:0;display:flex;justify-content:center;padding-bottom:calc(28px + env(safe-area-inset-bottom,0px));padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
 .lock{min-width:230px;min-height:56px;border-radius:999px;background:var(--yellow);color:var(--yellow-ink);font-weight:900;font-size:16px;text-transform:uppercase;letter-spacing:.03em;box-shadow:0 10px 30px rgba(0,0,0,.35)}
 .lock:disabled{background:rgba(255,255,255,.25);color:rgba(255,255,255,.85);box-shadow:none}
+.measbar{position:absolute;left:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;gap:12px;padding-bottom:calc(24px + env(safe-area-inset-bottom,0px));padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.measbar .row{display:flex;gap:10px;width:100%;max-width:420px}
+.measbar .row .btn{min-height:54px;background:rgba(20,24,30,.78);border-color:rgba(255,255,255,.22);color:#fff;-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px)}
+.measbar .row .btn.primary{background:var(--yellow);color:var(--yellow-ink);border-color:transparent}
+.measbar .row .btn:disabled{opacity:.45}
+.link{background:rgba(20,24,30,.6);color:#fff;padding:8px 16px;border-radius:999px;font-size:13.5px;font-weight:600;text-decoration:underline;text-underline-offset:3px}
+.readout{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+.readout b{font-family:var(--f-m);font-size:14px;font-weight:700;background:var(--yellow);color:var(--yellow-ink);padding:5px 11px;border-radius:7px}
+.cross{position:absolute;left:50%;top:50%;width:46px;height:46px;margin:-23px 0 0 -23px;pointer-events:none}
+.cross::before,.cross::after{content:"";position:absolute;background:#fff;box-shadow:0 0 4px rgba(0,0,0,.65)}
+.cross::before{left:50%;top:0;width:2px;height:100%;margin-left:-1px}
+.cross::after{top:50%;left:0;height:2px;width:100%;margin-top:-1px}
 
 /* ---------- Bottom sheet ---------- */
 .bottom{position:absolute;left:0;right:0;bottom:0;pointer-events:none}
@@ -171,9 +184,19 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
 
   <div id="guide" class="guide" hidden>
     <p id="guideText">Point at the floor</p>
-    <p class="sub">Clear a patch of floor near your bag, then sweep slowly</p>
+    <p class="sub" id="guideSub">Clear a patch of floor near your bag, then sweep slowly</p>
   </div>
   <div id="scanBar" class="scanbar" hidden><button id="btnLock" class="lock px" disabled>Place the cage</button></div>
+
+  <div id="cross" class="cross" hidden aria-hidden="true"></div>
+  <div id="measBar" class="measbar" hidden>
+    <div class="readout" id="measRead"></div>
+    <div class="row">
+      <button id="measUndo" class="btn px">Undo</button>
+      <button id="measTap" class="btn primary px" disabled>Mark corner</button>
+    </div>
+    <button id="measCancel" class="link px">Cancel</button>
+  </div>
 
   <div id="bottom" class="bottom" hidden>
     <nav class="sheet panel px" aria-label="Controls">
@@ -189,6 +212,8 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
         </div>
 
         <div id="paneMeasure" hidden style="display:flex;flex-direction:column;gap:12px">
+          <button id="btnScan" class="btn primary" style="min-height:52px">Measure my bag in AR</button>
+          <p class="wnote" id="scanNote">Or set the size by hand:</p>
           <div class="sliders">
             <div class="srow"><label for="sH">H</label><input type="range" id="sH" min="20" max="90" step="1" value="55"><output for="sH" id="oH" class="num">55 cm</output></div>
             <div class="srow"><label for="sW">W</label><input type="range" id="sW" min="15" max="70" step="1" value="36"><output for="sW" id="oW" class="num">36 cm</output></div>
@@ -378,6 +403,16 @@ const reticle = new THREE.Group(); reticle.matrixAutoUpdate = false; reticle.vis
   reticle.add(new THREE.Mesh(new THREE.CircleGeometry(.018,24).rotateX(-Math.PI/2), m));
 }
 
+/* ---------- Measured-box preview ---------- */
+const measBox = new THREE.LineSegments(
+  new THREE.EdgesGeometry(new THREE.BoxGeometry(1,1,1)),
+  new THREE.LineBasicMaterial({ color:YELLOW })
+);
+measBox.visible = false; scene.add(measBox);
+const measDots = new THREE.Group(); scene.add(measDots);
+const dotGeo = new THREE.SphereGeometry(.012, 12, 10);
+const dotMat = new THREE.MeshBasicMaterial({ color:YELLOW });
+
 /* ---------- Fit logic ---------- */
 const desc = a => [...a].sort((x,y)=>y-x);
 function fit(bag, a){
@@ -403,8 +438,10 @@ function showUI(mode){
   S.mode = mode;
   $('#intro').hidden   = mode!=='intro';
   $('#hud').hidden     = mode==='intro' || mode==='verdict';
-  $('#guide').hidden   = mode!=='scan';
+  $('#guide').hidden   = !(mode==='scan' || mode==='measure');
   $('#scanBar').hidden = mode!=='scan';
+  $('#measBar').hidden = mode!=='measure';
+  $('#cross').hidden   = mode!=='measure';
   $('#bottom').hidden  = mode!=='placed';
   $('#verdict').hidden = mode!=='verdict';
   if (mode!=='placed') setHint('');
@@ -443,13 +480,17 @@ function setPane(p){
   document.querySelectorAll('.seg [role=tab]').forEach(b => b.setAttribute('aria-selected', String(b.dataset.mode===p)));
   $('#paneCheck').hidden = p!=='check';
   $('#paneMeasure').hidden = p!=='measure';
-  $('#subtitle').textContent = p==='measure' ? 'Wrap the cage around your bag' : S.airline.name;
+  $('#subtitle').textContent = p==='measure' ? 'Your bag' : S.airline.name;
   $('#wnote').textContent = p==='measure'
     ? 'Include wheels and handles — that is where most bags lose their last three centimetres.'
     : (S.airline.kg ? `No phone can weigh a bag. ${S.airline.name} allows ${S.airline.kg} kg in the cabin — use a scale for that half.`
                     : 'This one is size-only: it rides free under the seat in front of you.');
   setHint(p==='check' ? 'Slide your bag into the cage — wheels and handles count'
-                      : 'Shrink the cage until it hugs your bag, then check all airlines');
+                      : 'Measure the bag, or set its size by hand');
+  const scan = $('#btnScan');
+  scan.disabled = !S.ar;
+  scan.textContent = S.ar ? 'Measure my bag in AR' : 'Measuring needs AR on a phone';
+  $('#scanNote').textContent = S.ar ? 'Or set the size by hand:' : 'Set the size by hand:';
   applyCage(); renderStatus();
 }
 function renderVerdict(){
@@ -469,6 +510,130 @@ function renderVerdict(){
   $('#vList').innerHTML = html;
 }
 
+/* ---------- Measuring a real bag ----------
+   Four marks, all exact geometry — no depth sensing, so it works on every ARCore phone.
+   1&2: the two front-bottom corners on the floor  -> width and which way the bag faces
+   3:   the floor behind the bag                   -> depth (perpendicular to the front edge)
+   4:   aim at the top front edge                  -> height (camera ray vs the vertical
+                                                      plane standing on the front edge)       */
+const M = { on:false, step:0, p1:null, p2:null, back:null, h:null };
+const STEPS = [
+  { t:'Aim at the floor at one front corner of the bag', b:'Mark corner', floor:true },
+  { t:'Now the other front corner',                      b:'Mark corner', floor:true },
+  { t:'Now the floor just behind the bag',               b:'Mark back',   floor:true },
+  { t:'Aim at the top front edge of the bag',            b:'Mark top',    floor:false },
+];
+const _up = new THREE.Vector3(0,1,0);
+
+function reticlePoint(){ return new THREE.Vector3().setFromMatrixPosition(reticle.matrix); }
+function camRay(){
+  camera.updateMatrixWorld();
+  return new THREE.Ray(
+    new THREE.Vector3().setFromMatrixPosition(camera.matrixWorld),
+    new THREE.Vector3(0,0,-1).transformDirection(camera.matrixWorld).normalize()
+  );
+}
+function frontDir(){ return M.p2.clone().sub(M.p1).setY(0).normalize(); }
+function perpDir(){
+  const n = new THREE.Vector3().crossVectors(_up, frontDir()).normalize();
+  if (M.back && n.dot(M.back.clone().sub(M.p1)) < 0) n.negate();
+  return n;
+}
+function measWidth(){ const a=M.p1.clone().setY(0), b=M.p2.clone().setY(0); return a.distanceTo(b); }
+function measDepth(){
+  if (!M.back) return 0;
+  const line = new THREE.Line3(M.p1.clone().setY(0), M.p2.clone().setY(0));
+  const c = new THREE.Vector3();
+  line.closestPointToPoint(M.back.clone().setY(0), false, c);
+  return M.back.clone().setY(0).distanceTo(c);
+}
+function topHeight(){
+  const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(perpDir(), M.p1);
+  const hit = camRay().intersectPlane(plane, new THREE.Vector3());
+  return hit ? hit.y - M.p1.y : null;
+}
+function drawMeas(){
+  measDots.clear();
+  for (const p of [M.p1, M.p2, M.back]) if (p){ const d = new THREE.Mesh(dotGeo, dotMat); d.position.copy(p); measDots.add(d); }
+  if (!M.p1 || !M.p2){ measBox.visible = false; return; }
+  const w = measWidth(), d = Math.max(measDepth(), .01), h = Math.max(M.h ?? .01, .01);
+  const mid = M.p1.clone().add(M.p2).multiplyScalar(.5);
+  measBox.position.copy(mid).addScaledVector(perpDir(), d/2).addScaledVector(_up, h/2);
+  measBox.quaternion.setFromUnitVectors(new THREE.Vector3(1,0,0), frontDir());
+  measBox.scale.set(Math.max(w,.01), h, d);
+  measBox.visible = true;
+}
+function measReadout(){
+  const cm = m => Math.round(m*100);
+  const bits = [];
+  if (M.p1 && M.p2) bits.push(`W ${cm(measWidth())}`);
+  if (M.back)       bits.push(`D ${cm(measDepth())}`);
+  if (M.h != null)  bits.push(`H ${cm(M.h)}`);
+  $('#measRead').innerHTML = bits.map(b=>`<b>${b} cm</b>`).join('');
+}
+function measUI(){
+  const s = STEPS[M.step];
+  $('#guideText').textContent = s ? s.t : 'Measured';
+  $('#guideSub') && ($('#guideSub').textContent = '');
+  $('#measTap').textContent = s ? s.b : 'Done';
+  $('#measTap').disabled = !!(s && s.floor && !S.found);
+  $('#measUndo').disabled = M.step === 0;
+  measReadout(); drawMeas();
+}
+function startMeasure(){
+  if (!S.ar){ toast('AR only — needs the camera'); return; }
+  M.on = true; M.step = 0; M.p1 = M.p2 = M.back = null; M.h = null;
+  measBox.material.color.setHex(YELLOW);
+  anchor.visible = false;
+  showUI('measure'); measUI();
+}
+function measureTap(){
+  const s = STEPS[M.step]; if (!s) return;
+  if (s.floor){
+    if (!S.found) return;
+    const p = reticlePoint();
+    if (M.step === 0) M.p1 = p;
+    else if (M.step === 1){
+      if (p.distanceTo(M.p1) < .05){ toast('Too close to the first corner'); return; }
+      M.p2 = p;
+    } else M.back = p;
+  } else {
+    const h = topHeight();
+    if (h == null || h < .05 || h > 1.5){ toast('Aim at the top front edge'); return; }
+    M.h = h;
+  }
+  M.step++; buzz();
+  if (M.step >= STEPS.length) finishMeasure(); else measUI();
+}
+function finishMeasure(){
+  const cm = m => Math.round(m*100);
+  S.bag = [cm(M.h), cm(measWidth()), cm(measDepth())];
+  S.measured = true;
+  M.on = false;
+  for (const id in SLIDERS){
+    const [i] = SLIDERS[id];
+    const el = $('#'+id);
+    el.value = Math.min(+el.max, Math.max(+el.min, S.bag[i]));
+    $(SLIDERS[id][1]).textContent = el.value + ' cm';
+  }
+  const f = fit(S.bag, S.airline);
+  measBox.material.color.setHex(f.ok ? 0x2fbf71 : 0xff5a47);
+  anchor.visible = true;
+  showUI('placed'); setPane('measure');
+  toast(f.ok ? `Fits ${S.airline.name}` : `${f.note} for ${S.airline.name}`);
+}
+function undoMeasure(){
+  if (M.step === 0) return;
+  M.step--;
+  if (M.step === 0) M.p1 = null; else if (M.step === 1) M.p2 = null;
+  else if (M.step === 2) M.back = null; else M.h = null;
+  measUI();
+}
+function cancelMeasure(){
+  M.on = false; measBox.visible = false; measDots.clear();
+  anchor.visible = true; showUI('placed'); setPane(S.pane);
+}
+
 /* ---------- AR ---------- */
 let xrSession=null, refSpace=null, hitSource=null;
 async function startAR(){
@@ -481,13 +646,22 @@ async function startAR(){
     await renderer.xr.setSession(s);
     refSpace = renderer.xr.getReferenceSpace();
     hitSource = await s.requestHitTestSource({ space: await s.requestReferenceSpace('viewer') });
-    s.addEventListener('select', () => { if (S.mode==='scan' && S.found) place(); });
+    s.addEventListener('select', () => {
+      if (S.mode==='scan' && S.found) place();
+      else if (S.mode==='measure') measureTap();
+    });
     s.addEventListener('end', () => { hitSource=null; xrSession=null; S.ar=false; goIntro(); });
     previewSet.visible = false; controls.enabled = false;
     enterScan();
   }catch(err){ S.ar=false; toast('AR could not start'); console.error(err); }
 }
-function enterScan(){ anchor.visible=false; S.found=false; $('#btnLock').disabled=true; $('#guideText').textContent='Point at the floor'; showUI('scan'); }
+function enterScan(){
+  anchor.visible=false; S.found=false;
+  $('#btnLock').disabled=true;
+  $('#guideText').textContent='Point at the floor';
+  $('#guideSub').textContent='Clear a patch of floor near your bag, then sweep slowly';
+  showUI('scan');
+}
 const _m = new THREE.Matrix4(), _n = new THREE.Vector3();
 function handleHits(frame){
   let ok = false;
@@ -499,9 +673,14 @@ function handleHits(frame){
   }
   reticle.visible = ok;
   if (ok !== S.found){
-    S.found = ok; $('#btnLock').disabled = !ok;
-    $('#guideText').textContent = ok ? 'Floor found' : 'Point at the floor';
+    S.found = ok;
+    if (S.mode === 'measure'){ $('#measTap').disabled = !ok; }
+    else {
+      $('#btnLock').disabled = !ok;
+      $('#guideText').textContent = ok ? 'Floor found' : 'Point at the floor';
+    }
   }
+  if (S.mode === 'measure' && ok) drawMeas();
 }
 function place(){
   const p = new THREE.Vector3(), q = new THREE.Quaternion(), sc = new THREE.Vector3();
@@ -559,7 +738,14 @@ async function viewInRoom(){
 
 /* ---------- Loop ---------- */
 renderer.setAnimationLoop((t, frame) => {
-  if (frame && hitSource && S.mode==='scan') handleHits(frame);
+  const floorStep = S.mode==='measure' && STEPS[M.step] && STEPS[M.step].floor;
+  if (frame && hitSource && (S.mode==='scan' || floorStep)) handleHits(frame);
+  else if (S.mode==='measure') reticle.visible = false;
+  // Live height: while aiming at the top edge, grow the box with the crosshair.
+  if (S.mode==='measure' && M.step===3 && M.p1 && M.p2){
+    const h = topHeight();
+    if (h != null && h > .05 && h < 1.5){ M.h = h; drawMeas(); measReadout(); }
+  }
   if (!S.ar && controls.enabled) controls.update();
   renderer.render(scene, camera);
 });
@@ -577,6 +763,10 @@ $('#btnExit').addEventListener('click', () => { if (xrSession) xrSession.end(); 
 $('#btnLock').addEventListener('click', place);
 $('#btnMove').addEventListener('click', () => { if (S.ar) enterScan(); else toast('Drag to orbit'); });
 $('#btnRoom').addEventListener('click', viewInRoom);
+$('#btnScan').addEventListener('click', startMeasure);
+$('#measTap').addEventListener('click', measureTap);
+$('#measUndo').addEventListener('click', undoMeasure);
+$('#measCancel').addEventListener('click', cancelMeasure);
 $('#btnBack').addEventListener('click', () => showUI('placed'));
 $('#btnVerdict').addEventListener('click', () => { renderVerdict(); showUI('verdict'); });
 document.querySelectorAll('.seg [role=tab]').forEach(b => b.addEventListener('click', () => setPane(b.dataset.mode)));
