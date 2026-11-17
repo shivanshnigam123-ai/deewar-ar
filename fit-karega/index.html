@@ -1,0 +1,619 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Fit Karega</title>
+<meta name="description" content="See your airline's exact cabin bag allowance as a real-size AR cage, measure your bag, and check it against every airline before you reach the gate.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;900&family=IBM+Plex+Mono:wght@500;700&display=swap">
+<style>
+/* Airport-signage system: paper ground, safety-yellow tag accent, mono digits. */
+:root{
+  --bg:#eef1f4; --fg:#131a22; --muted:#5a6673; --card:#ffffff; --line:#d3dae1; --sunk:#e5e9ee;
+  --yellow:#ffd42a; --yellow-ink:#1a1504; --ok:#0d8a4b; --bad:#c62f21; --okbg:#e2f3ea; --badbg:#fbe7e4;
+  --f-d:'Archivo',system-ui,sans-serif; --f-m:'IBM Plex Mono',ui-monospace,monospace;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#11161c; --fg:#edf1f5; --muted:#97a2ad; --card:#1a2129; --line:#2d3842; --sunk:#141a21;
+  --ok:#3cc47f; --bad:#ff6d5c; --okbg:#15372a; --badbg:#46201b; color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --bg:#11161c; --fg:#edf1f5; --muted:#97a2ad; --card:#1a2129; --line:#2d3842; --sunk:#141a21;
+  --ok:#3cc47f; --bad:#ff6d5c; --okbg:#15372a; --badbg:#46201b; color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:var(--f-d);-webkit-tap-highlight-color:transparent;overflow:hidden;overscroll-behavior:none}
+[hidden]{display:none!important}
+button{font:inherit;color:inherit;cursor:pointer;-webkit-user-select:none;user-select:none;border:0;background:none;padding:0}
+button:focus-visible,input:focus-visible{outline:2px solid var(--yellow);outline-offset:2px}
+.num{font-family:var(--f-m);font-variant-numeric:tabular-nums}
+#gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#ui{position:fixed;inset:0;pointer-events:none;z-index:2}
+#ui .px{pointer-events:auto}
+.panel{background:var(--card);border:1px solid var(--line)}
+
+/* ---------- Intro ---------- */
+#intro{position:absolute;inset:0;background:var(--bg);overflow-y:auto;padding-top:calc(20px + env(safe-area-inset-top,0px));padding-bottom:calc(24px + env(safe-area-inset-bottom,0px));padding-left:max(20px,env(safe-area-inset-left,0px));padding-right:max(20px,env(safe-area-inset-right,0px))}
+.wrap{max-width:560px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
+.tagline{display:flex;align-items:center;gap:10px;font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:0}
+.tagline::before{content:"";width:34px;height:20px;flex:0 0 auto;background:var(--yellow);clip-path:polygon(0 50%,22% 0,100% 0,100% 100%,22% 100%)}
+h1{font-size:clamp(44px,12.5vw,74px);line-height:.95;letter-spacing:-.03em;font-weight:900;margin:0;text-wrap:balance;text-transform:uppercase}
+h1 em{font-style:normal;color:transparent;-webkit-text-stroke:2px var(--fg)}
+.lede{margin:0;font-size:15.5px;line-height:1.55;color:var(--muted);max-width:44ch;font-weight:500}
+.lede b{color:var(--fg)}
+.boxes{position:relative;height:152px}
+.bx{position:absolute;bottom:0;border:2.5px solid;border-radius:4px;max-width:100%}
+.bx span{position:absolute;top:var(--lt);right:-2px;font-family:var(--f-m);font-size:10.5px;font-weight:700;padding:3px 7px;color:var(--card);white-space:nowrap;border-radius:3px}
+.bx1{width:224px;height:150px;border-color:var(--fg);--lt:-2px}.bx1 span{background:var(--fg)}
+.bx2{width:160px;height:148px;border-color:#c97f16;left:26px;--lt:24px}.bx2 span{background:#c97f16}
+.bx3{width:140px;height:130px;border-color:var(--muted);left:46px;--lt:50px}.bx3 span{background:var(--muted)}
+.bx4{width:120px;height:108px;border-color:var(--bad);left:66px;--lt:76px}.bx4 span{background:var(--bad)}
+.boxcap{font-size:12.5px;color:var(--muted);margin:8px 0 0;font-weight:500;line-height:1.5}
+.actions{display:flex;gap:10px;flex-wrap:wrap}
+.btn{flex:1 1 150px;min-height:56px;border-radius:10px;border:1.5px solid var(--line);background:var(--card);font-weight:700;font-size:16px}
+.btn.primary{background:var(--yellow);color:var(--yellow-ink);border-color:transparent}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.note{font-size:13px;color:var(--muted);margin:0;line-height:1.55;font-weight:500}
+.srcs{font-size:12px;color:var(--muted);margin:0;line-height:1.6}
+
+/* ---------- HUD ---------- */
+.hud{position:absolute;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:flex-start;gap:10px;padding-top:calc(12px + env(safe-area-inset-top,0px));padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.brand{display:flex;flex-direction:column;gap:1px;padding:9px 14px;border-radius:10px;min-width:0}
+.brand b{font-size:15px;font-weight:900;letter-spacing:-.01em;text-transform:uppercase}
+.brand span{font-size:11.5px;color:var(--muted);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chip{height:40px;padding:0 16px;border-radius:999px;font-size:14px;font-weight:700;flex:0 0 auto}
+.hint{position:absolute;left:50%;transform:translateX(-50%);top:calc(76px + env(safe-area-inset-top,0px));padding:8px 14px;border-radius:999px;font-size:13px;font-weight:600;max-width:calc(100% - 32px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* ---------- Scan ---------- */
+.guide{position:absolute;left:0;right:0;top:30%;display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));text-shadow:0 1px 8px rgba(0,0,0,.55);color:#fff}
+.guide p{margin:0}
+#guideText{font-size:21px;font-weight:900;text-wrap:balance;text-transform:uppercase}
+.guide .sub{font-size:14px;font-weight:600;color:#e8e8e8}
+.scanbar{position:absolute;left:0;right:0;bottom:0;display:flex;justify-content:center;padding-bottom:calc(28px + env(safe-area-inset-bottom,0px));padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.lock{min-width:230px;min-height:56px;border-radius:999px;background:var(--yellow);color:var(--yellow-ink);font-weight:900;font-size:16px;text-transform:uppercase;letter-spacing:.03em;box-shadow:0 10px 30px rgba(0,0,0,.35)}
+.lock:disabled{background:rgba(255,255,255,.25);color:rgba(255,255,255,.85);box-shadow:none}
+
+/* ---------- Bottom sheet ---------- */
+.bottom{position:absolute;left:0;right:0;bottom:0;pointer-events:none}
+.sheet{border-radius:18px 18px 0 0;border-bottom:0;border-left:0;border-right:0;padding-top:10px;padding-bottom:calc(14px + env(safe-area-inset-bottom,0px));box-shadow:0 -12px 40px rgba(0,0,0,.18);pointer-events:auto}
+.sheet-inner{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:12px}
+.seg{display:flex;background:var(--sunk);border:1px solid var(--line);border-radius:10px;padding:3px;gap:3px}
+.seg button{flex:1;min-height:40px;border-radius:7px;font-weight:700;font-size:14px;color:var(--muted);min-width:0}
+.seg button[aria-selected="true"]{background:var(--yellow);color:var(--yellow-ink)}
+.airrow{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;margin:0 -2px;padding:2px;scroll-padding-inline:2px}
+.airrow::-webkit-scrollbar{display:none}
+.air{flex:0 0 auto;display:flex;flex-direction:column;gap:2px;padding:9px 13px;border-radius:10px;border:1.5px solid var(--line);background:var(--sunk);text-align:left}
+.air b{font-size:13.5px;font-weight:700;white-space:nowrap}
+.air span{font-size:11px;color:var(--muted);font-weight:600;white-space:nowrap}
+.air.on{border-color:var(--fg);background:var(--card)}
+.status{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;background:var(--sunk);border:1px solid var(--line)}
+.status .st{flex:0 0 auto;padding:5px 10px;border-radius:7px;font-size:11.5px;font-weight:900;letter-spacing:.05em}
+.status.ok .st{background:var(--okbg);color:var(--ok)}
+.status.bad .st{background:var(--badbg);color:var(--bad)}
+.status.idle .st{background:var(--line);color:var(--muted)}
+.status p{margin:0;font-size:12.5px;font-weight:600;color:var(--muted);line-height:1.4;min-width:0}
+.sliders{display:flex;flex-direction:column;gap:8px}
+.srow{display:grid;grid-template-columns:30px 1fr 82px;align-items:center;gap:10px}
+.srow label{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.srow output{font-family:var(--f-m);font-size:16px;font-weight:700;text-align:right;white-space:nowrap}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:30px;background:transparent;margin:0;min-width:0}
+input[type=range]::-webkit-slider-runnable-track{height:6px;border-radius:3px;background:var(--line)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:26px;height:26px;border-radius:50%;background:var(--yellow);border:2.5px solid var(--yellow-ink);margin-top:-10px}
+input[type=range]::-moz-range-track{height:6px;border-radius:3px;background:var(--line)}
+input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;background:var(--yellow);border:2.5px solid var(--yellow-ink)}
+#paneMeasure>.btn{flex:0 0 auto}
+.rowbtns{display:flex;gap:10px}
+.rowbtns .btn{min-height:48px;font-size:15px}
+.wnote{font-size:12.5px;color:var(--muted);font-weight:600;line-height:1.45;margin:0}
+
+/* ---------- Verdict ---------- */
+#verdict{position:absolute;inset:0;background:var(--bg);overflow-y:auto;padding-top:calc(18px + env(safe-area-inset-top,0px));padding-bottom:calc(24px + env(safe-area-inset-bottom,0px));padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.vhead{display:flex;justify-content:space-between;align-items:baseline;gap:12px;max-width:560px;margin:0 auto 6px;flex-wrap:wrap}
+.vhead h2{margin:0;font-size:22px;font-weight:900;text-transform:uppercase}
+.vhead .num{font-size:15px;color:var(--fg);font-weight:700}
+.vsum{max-width:560px;margin:0 auto 14px;font-size:13px;color:var(--muted);font-weight:600}
+.vlist{display:flex;flex-direction:column;gap:8px;max-width:560px;margin:0 auto}
+.vgrp{font-size:11.5px;font-weight:900;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:8px 0 0}
+.vrow{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:var(--card)}
+.vrow .st{flex:0 0 auto;min-width:68px;text-align:center;padding:6px 0;border-radius:8px;font-size:11.5px;font-weight:900;letter-spacing:.05em}
+.vrow.ok .st{background:var(--okbg);color:var(--ok)}
+.vrow.bad .st{background:var(--badbg);color:var(--bad)}
+.vrow .nm{flex:1;min-width:0}
+.vrow .nm b{display:block;font-size:14.5px;font-weight:700}
+.vrow .nm span{display:block;font-size:11.5px;color:var(--muted);font-weight:600;margin-top:1px}
+.vrow .dt{font-family:var(--f-m);font-size:12px;font-weight:700;color:var(--muted);text-align:right;white-space:nowrap}
+.vrow.bad .dt{color:var(--bad)}
+.vfoot{max-width:560px;margin:16px auto 0;display:flex;flex-direction:column;gap:14px}
+.toast{position:absolute;left:50%;top:calc(120px + env(safe-area-inset-top,0px));transform:translate(-50%,-6px);background:var(--yellow);color:var(--yellow-ink);font-weight:900;font-size:13px;padding:8px 16px;border-radius:999px;opacity:0;transition:opacity .2s,transform .2s;white-space:nowrap;text-transform:uppercase;letter-spacing:.04em}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+@media (prefers-reduced-motion:reduce){.toast{transition:none}}
+</style>
+<script type="importmap">
+{"imports":{
+  "three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+}}
+</script>
+</head>
+<body>
+<div id="ui">
+  <section id="intro" class="px">
+    <div class="wrap">
+      <p class="tagline">Cabin bag reality check</p>
+      <h1>Fit <em>Karega?</em></h1>
+      <p class="lede">Your airline's cabin bag cage, drawn at <b>real size on your floor</b>. Put your bag in it at home, not at the gate — or wrap the cage around your bag and check it against <b>every airline at once</b>.</p>
+      <div>
+        <div class="boxes" aria-hidden="true">
+          <div class="bx bx1"><span>BA 56×45×25</span></div>
+          <div class="bx bx2"><span>LH 55×40×23</span></div>
+          <div class="bx bx3"><span>6E 55×35×25</span></div>
+          <div class="bx bx4"><span>FR 40×30×20</span></div>
+        </div>
+        <p class="boxcap">Same words — "one cabin bag" — four different boxes. The bag that flies free on British Airways is a paid check-in on IndiGo. That gap is where gate fees live.</p>
+      </div>
+      <div class="actions">
+        <button id="btnAR" class="btn primary">Start AR</button>
+        <button id="btnPreview" class="btn">3D preview</button>
+      </div>
+      <p id="support" class="note">Checking AR support…</p>
+      <p class="note">Measurements include wheels and handles, which is where most bags fail. Size is only half the rule — weight is the other half, and no phone can weigh a bag, so the cage shows you the limit and leaves that to your scale.</p>
+      <p class="srcs">Limits checked November 2026 against airline baggage pages and current guides. Airlines change these, so confirm on your airline's own site before you fly.</p>
+    </div>
+  </section>
+
+  <header id="hud" class="hud" hidden>
+    <div class="brand panel px"><b>Fit Karega?</b><span id="subtitle">—</span></div>
+    <button id="btnExit" class="chip panel px">Exit</button>
+  </header>
+  <div id="hint" class="hint panel" hidden></div>
+
+  <div id="guide" class="guide" hidden>
+    <p id="guideText">Point at the floor</p>
+    <p class="sub">Clear a patch of floor near your bag, then sweep slowly</p>
+  </div>
+  <div id="scanBar" class="scanbar" hidden><button id="btnLock" class="lock px" disabled>Place the cage</button></div>
+
+  <div id="bottom" class="bottom" hidden>
+    <nav class="sheet panel px" aria-label="Controls">
+      <div class="sheet-inner">
+        <div class="seg" role="tablist">
+          <button role="tab" data-mode="check" aria-selected="true">Airline cage</button>
+          <button role="tab" data-mode="measure" aria-selected="false">My bag</button>
+        </div>
+
+        <div id="paneCheck" style="display:flex;flex-direction:column;gap:12px">
+          <div class="airrow" id="airRow"></div>
+          <div class="status idle" id="liveStatus"><span class="st">SIZE</span><p id="liveText">—</p></div>
+        </div>
+
+        <div id="paneMeasure" hidden style="display:flex;flex-direction:column;gap:12px">
+          <div class="sliders">
+            <div class="srow"><label for="sH">H</label><input type="range" id="sH" min="20" max="90" step="1" value="55"><output for="sH" id="oH" class="num">55 cm</output></div>
+            <div class="srow"><label for="sW">W</label><input type="range" id="sW" min="15" max="70" step="1" value="36"><output for="sW" id="oW" class="num">36 cm</output></div>
+            <div class="srow"><label for="sD">D</label><input type="range" id="sD" min="10" max="60" step="1" value="23"><output for="sD" id="oD" class="num">23 cm</output></div>
+          </div>
+          <button id="btnVerdict" class="btn primary" style="min-height:48px">Check all airlines</button>
+        </div>
+
+        <div class="rowbtns">
+          <button id="btnMove" class="btn">Move cage</button>
+          <button id="btnRoom" class="btn" hidden>View in your room</button>
+        </div>
+        <p class="wnote" id="wnote">—</p>
+      </div>
+    </nav>
+  </div>
+
+  <section id="verdict" class="px" hidden>
+    <div class="vhead"><h2>Your bag</h2><span id="vDims" class="num">—</span></div>
+    <p class="vsum" id="vSum">—</p>
+    <div class="vlist" id="vList"></div>
+    <div class="vfoot">
+      <p class="note">Pass means the bag fits that cage in some upright or flat orientation, wheels and handles included. Weight is still between you and the scale.</p>
+      <div class="actions"><button id="btnBack" class="btn primary">Back to the cage</button></div>
+    </div>
+  </section>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { USDZExporter } from 'three/addons/exporters/USDZExporter.js';
+
+const $ = s => document.querySelector(s);
+
+/* Allowances in cm as [H, W, D] plus cabin weight in kg.
+   `sum` marks carriers that rule on total linear size instead of per-side. */
+const AIRLINES = [
+  { id:'6E', name:'IndiGo',            grp:'Indian carriers', dims:[55,35,25], kg:7 },
+  { id:'AI', name:'Air India',         grp:'Indian carriers', dims:[55,40,20], kg:7 },
+  { id:'QP', name:'Akasa Air',         grp:'Indian carriers', dims:[55,35,25], kg:7 },
+  { id:'SG', name:'SpiceJet',          grp:'Indian carriers', dims:[55,35,25], kg:7 },
+  { id:'IX', name:'Air India Express', grp:'Indian carriers', dims:[55,35,25], kg:7 },
+  { id:'EK', name:'Emirates',          grp:'International',   dims:[55,38,20], kg:7 },
+  { id:'QR', name:'Qatar Airways',     grp:'International',   dims:[50,37,25], kg:7 },
+  { id:'SQ', name:'Singapore Airlines',grp:'International',   dims:[56,36,23], kg:7, sum:115 },
+  { id:'LH', name:'Lufthansa',         grp:'International',   dims:[55,40,23], kg:8 },
+  { id:'BA', name:'British Airways',   grp:'International',   dims:[56,45,25], kg:23 },
+  { id:'FR', name:'Ryanair free bag',  grp:'International',   dims:[40,30,20], kg:0 },
+  { id:'PI', name:'Personal item',     grp:'Under the seat',  dims:[40,30,20], kg:3 },
+];
+const S = { mode:'intro', ar:false, airline:AIRLINES[0], pane:'check', bag:[55,36,23], measured:false, found:false };
+
+/* ---------- Renderer ---------- */
+const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.xr.enabled = true;
+renderer.domElement.id = 'gl';
+document.body.prepend(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(55, innerWidth/innerHeight, .01, 40);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x8899aa, 1.15));
+const key = new THREE.DirectionalLight(0xffffff, 1.5); key.position.set(1.6,3,2.2); scene.add(key);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true; controls.enablePan = false;
+controls.minDistance = .7; controls.maxDistance = 4.5; controls.maxPolarAngle = Math.PI*.49;
+controls.enabled = false;
+
+const YELLOW = 0xffd42a, INK = 0x20242a, GREY = 0x9fb2c4;
+
+/* ---------- Cage: built once, resized by transform only ---------- */
+const anchor = new THREE.Group(); anchor.visible = false; scene.add(anchor);
+const cage = new THREE.Group(); anchor.add(cage);
+
+const frameMat  = new THREE.MeshStandardMaterial({ color:YELLOW, roughness:.45, metalness:.25 });
+const cornerMat = new THREE.MeshStandardMaterial({ color:INK, roughness:.5 });
+const faceMat   = new THREE.MeshBasicMaterial({ color:YELLOW, transparent:true, opacity:.07, depthWrite:false });
+const T = .016;
+const barsX = [], barsY = [], barsZ = [], corners = [];
+{
+  const gx = new THREE.BoxGeometry(1,T,T), gy = new THREE.BoxGeometry(T,1,T), gz = new THREE.BoxGeometry(T,T,1);
+  const gc = new RoundedBoxGeometry(T*2.3,T*2.3,T*2.3,2,.006);
+  for (let i=0;i<4;i++){ const m=new THREE.Mesh(gx,frameMat); barsX.push(m); cage.add(m); }
+  for (let i=0;i<4;i++){ const m=new THREE.Mesh(gz,frameMat); barsZ.push(m); cage.add(m); }
+  for (let i=0;i<4;i++){ const m=new THREE.Mesh(gy,frameMat); barsY.push(m); cage.add(m); }
+  for (let i=0;i<8;i++){ const m=new THREE.Mesh(gc,cornerMat); corners.push(m); cage.add(m); }
+}
+const faceBox = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), faceMat); cage.add(faceBox);
+
+/* Sprites with redraw-on-change textures */
+function makeSprite(w,h,px,py){
+  const c = document.createElement('canvas'); c.width=px; c.height=py;
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map:t, depthTest:false, transparent:true }));
+  sp.scale.set(w,h,1); sp.userData = { c, x:c.getContext('2d'), last:null, t };
+  return sp;
+}
+function rrect(x,a,b,w,h,rad){ if (x.roundRect){ x.beginPath(); x.roundRect(a,b,w,h,rad); } else { x.beginPath(); x.rect(a,b,w,h); } }
+function drawDim(sp, txt){
+  const d = sp.userData; if (d.last === txt) return; d.last = txt;
+  const x = d.x; x.clearRect(0,0,256,96);
+  x.fillStyle='#ffd42a'; rrect(x,4,4,248,88,14); x.fill();
+  x.fillStyle='#1a1504'; x.font="700 42px 'IBM Plex Mono', monospace"; x.textAlign='center'; x.textBaseline='middle';
+  x.fillText(txt,128,52); d.t.needsUpdate = true;
+}
+function drawPlate(sp, a){
+  const d = sp.userData, kstr = a.kg ? `max ${a.kg} kg` : 'free under-seat bag';
+  const txt = a.name + '|' + kstr; if (d.last === txt) return; d.last = txt;
+  const x = d.x; x.clearRect(0,0,512,160);
+  x.fillStyle='#20242a'; rrect(x,2,2,508,156,18); x.fill();
+  x.fillStyle='#ffd42a'; rrect(x,2,2,118,156,[18,0,0,18]); x.fill();
+  x.fillStyle='#1a1504'; x.font="900 54px Archivo, sans-serif"; x.textAlign='center'; x.textBaseline='middle';
+  x.fillText(a.id,61,82);
+  x.fillStyle='#ffffff'; x.font="700 38px Archivo, sans-serif"; x.textAlign='left';
+  x.fillText(a.name.length>18 ? a.name.slice(0,17)+'…' : a.name, 142, 62);
+  x.fillStyle='#ffd42a'; x.font="700 32px 'IBM Plex Mono', monospace";
+  x.fillText(kstr, 142, 112);
+  d.t.needsUpdate = true;
+}
+const spH = makeSprite(.19,.071,256,96), spW = makeSprite(.19,.071,256,96), spD = makeSprite(.19,.071,256,96);
+const spPlate = makeSprite(.44,.1375,512,160);
+cage.add(spH, spW, spD, spPlate);
+
+function setCage(h, w, d, opts={}){
+  const H=h/100, W=w/100, D=d/100, half=T/2;
+  frameMat.color.setHex(opts.color ?? YELLOW);
+  faceMat.color.setHex(opts.color ?? YELLOW);
+  let i=0;
+  for (const y of [half, H-half]) for (const z of [-D/2+half, D/2-half]){ const m=barsX[i++]; m.scale.x=W; m.position.set(0,y,z); }
+  i=0;
+  for (const y of [half, H-half]) for (const x of [-W/2+half, W/2-half]){ const m=barsZ[i++]; m.scale.z=D; m.position.set(x,y,0); }
+  i=0;
+  for (const x of [-W/2+half, W/2-half]) for (const z of [-D/2+half, D/2-half]){ const m=barsY[i++]; m.scale.y=H; m.position.set(x,H/2,z); }
+  i=0;
+  for (const y of [half, H-half]) for (const x of [-W/2+half, W/2-half]) for (const z of [-D/2+half, D/2-half]) corners[i++].position.set(x,y,z);
+  faceBox.scale.set(W,H,D); faceBox.position.y = H/2;
+
+  const show = !opts.plain;
+  spH.visible = spW.visible = spD.visible = true;
+  spPlate.visible = show;
+  drawDim(spH, h+''); drawDim(spW, w+''); drawDim(spD, d+'');
+  spH.position.set(-W/2-.08, H/2, D/2);
+  spW.position.set(0, -.06, D/2+.05);
+  spD.position.set(W/2+.085, -.06, 0);
+  if (show){ drawPlate(spPlate, S.airline); spPlate.position.set(0, H+.12, 0); }
+}
+
+/* ---------- Demo bag (preview only) ---------- */
+const demoBag = new THREE.Group();
+const bagMat = new THREE.MeshStandardMaterial({ color:0x3a4654, roughness:.72 });
+const hardMat = new THREE.MeshStandardMaterial({ color:0x15181c, roughness:.4 });
+const bagBody = new THREE.Mesh(new RoundedBoxGeometry(1,1,1,4,.055), bagMat);
+demoBag.add(bagBody);
+const bagWheels = [], bagPosts = [];
+for (let i=0;i<4;i++){ const w = new THREE.Mesh(new THREE.CylinderGeometry(.021,.021,.018,16).rotateX(Math.PI/2), hardMat); bagWheels.push(w); demoBag.add(w); }
+for (let i=0;i<2;i++){ const p = new THREE.Mesh(new THREE.BoxGeometry(.016,1,.016), hardMat); bagPosts.push(p); demoBag.add(p); }
+const bagStem = new THREE.Mesh(new THREE.BoxGeometry(1,.02,.02), hardMat); demoBag.add(bagStem);
+function setDemoBag(h,w,d){
+  const H=h/100, W=w/100, D=d/100, wheel=.042, hand=.085, body=Math.max(.05, H-wheel-hand);
+  bagBody.scale.set(W,body,D); bagBody.position.set(0, wheel+body/2, 0);
+  let i=0;
+  for (const sx of [-1,1]) for (const sz of [-1,1]) bagWheels[i++].position.set(sx*(W/2-.045), .021, sz*(D/2-.045));
+  bagPosts[0].scale.y = hand; bagPosts[1].scale.y = hand;
+  bagPosts[0].position.set(-W*.26, wheel+body+hand/2, 0);
+  bagPosts[1].position.set( W*.26, wheel+body+hand/2, 0);
+  bagStem.scale.x = W*.56; bagStem.position.set(0, wheel+body+hand, 0);
+}
+
+const previewSet = new THREE.Group(); previewSet.visible = false; scene.add(previewSet);
+{
+  const grid = new THREE.GridHelper(8, 32, 0x8a95a1, 0xb9c2cb);
+  grid.material.transparent = true; grid.material.opacity = .4; previewSet.add(grid);
+}
+previewSet.add(demoBag);
+
+/* ---------- Reticle ---------- */
+const reticle = new THREE.Group(); reticle.matrixAutoUpdate = false; reticle.visible = false; scene.add(reticle);
+{
+  const m = new THREE.MeshBasicMaterial({ color:YELLOW });
+  reticle.add(new THREE.Mesh(new THREE.RingGeometry(.09,.115,48).rotateX(-Math.PI/2), m));
+  reticle.add(new THREE.Mesh(new THREE.CircleGeometry(.018,24).rotateX(-Math.PI/2), m));
+}
+
+/* ---------- Fit logic ---------- */
+const desc = a => [...a].sort((x,y)=>y-x);
+function fit(bag, a){
+  if (a.sum){
+    const total = bag[0]+bag[1]+bag[2], over = Math.max(0, total-a.sum);
+    return { ok:!over, over, note: over ? `${over} cm over` : `total ${total} / ${a.sum} cm` };
+  }
+  const b = desc(bag), l = desc(a.dims);
+  let over = 0;
+  for (let i=0;i<3;i++) if (b[i] > l[i]) over += b[i]-l[i];
+  if (over) return { ok:false, over, note:`${over} cm over` };
+  const spare = Math.min(l[0]-b[0], l[1]-b[1], l[2]-b[2]);
+  return { ok:true, over:0, note: spare >= 2 ? `${spare} cm to spare` : 'only just' };
+}
+
+/* ---------- UI ---------- */
+let toastTimer;
+function toast(t){ const e=$('#toast'); e.textContent=t; e.classList.add('show'); clearTimeout(toastTimer); toastTimer=setTimeout(()=>e.classList.remove('show'),1500); }
+function buzz(){ try{ navigator.vibrate && navigator.vibrate(12); }catch(e){} }
+function setHint(t){ const h=$('#hint'); h.textContent=t||''; h.hidden=!t; }
+
+function showUI(mode){
+  S.mode = mode;
+  $('#intro').hidden   = mode!=='intro';
+  $('#hud').hidden     = mode==='intro' || mode==='verdict';
+  $('#guide').hidden   = mode!=='scan';
+  $('#scanBar').hidden = mode!=='scan';
+  $('#bottom').hidden  = mode!=='placed';
+  $('#verdict').hidden = mode!=='verdict';
+  if (mode!=='placed') setHint('');
+  $('#btnExit').textContent = S.ar ? 'Exit AR' : 'Back';
+}
+function renderAirlines(){
+  $('#airRow').innerHTML = AIRLINES.map(a =>
+    `<button class="air ${a.id===S.airline.id?'on':''}" data-air="${a.id}"><b>${a.name}</b><span class="num">${a.sum?`total ≤ ${a.sum}`:a.dims.join('×')} cm${a.kg?` · ${a.kg} kg`:''}</span></button>`).join('');
+}
+function renderStatus(){
+  const el = $('#liveStatus'), tx = $('#liveText'), a = S.airline;
+  if (!S.measured){
+    el.className = 'status idle';
+    el.querySelector('.st').textContent = 'SIZE';
+    tx.textContent = `${a.sum?`total ≤ ${a.sum} cm`:a.dims.join(' × ')+' cm'} · ${a.kg?a.kg+' kg':'free under-seat bag'}. Put your bag in the cage, or set its size under "My bag".`;
+    return;
+  }
+  const f = fit(S.bag, a);
+  el.className = 'status ' + (f.ok?'ok':'bad');
+  el.querySelector('.st').textContent = f.ok ? 'PASS' : 'FAIL';
+  tx.textContent = `Your ${S.bag.join('×')} cm against ${a.name} — ${f.note}.`;
+}
+function applyCage(){
+  if (S.pane==='check'){ const [h,w,d]=S.airline.dims; setCage(h,w,d); }
+  else { const [h,w,d]=S.bag; setCage(h,w,d,{ plain:true, color:GREY }); }
+  if (previewSet.visible) refreshPreviewBag();
+}
+function refreshPreviewBag(){
+  const [h,w,d] = S.bag;
+  setDemoBag(h,w,d);
+  const f = fit(S.bag, S.airline);
+  bagMat.color.setHex(S.measured ? (f.ok ? 0x2f7d55 : 0x8d3127) : 0x3a4654);
+}
+function setPane(p){
+  S.pane = p;
+  document.querySelectorAll('.seg [role=tab]').forEach(b => b.setAttribute('aria-selected', String(b.dataset.mode===p)));
+  $('#paneCheck').hidden = p!=='check';
+  $('#paneMeasure').hidden = p!=='measure';
+  $('#subtitle').textContent = p==='measure' ? 'Wrap the cage around your bag' : S.airline.name;
+  $('#wnote').textContent = p==='measure'
+    ? 'Include wheels and handles — that is where most bags lose their last three centimetres.'
+    : (S.airline.kg ? `No phone can weigh a bag. ${S.airline.name} allows ${S.airline.kg} kg in the cabin — use a scale for that half.`
+                    : 'This one is size-only: it rides free under the seat in front of you.');
+  setHint(p==='check' ? 'Slide your bag into the cage — wheels and handles count'
+                      : 'Shrink the cage until it hugs your bag, then check all airlines');
+  applyCage(); renderStatus();
+}
+function renderVerdict(){
+  const [h,w,d] = S.bag;
+  $('#vDims').textContent = `${h} × ${w} × ${d} cm`;
+  const rows = AIRLINES.map(a => ({ a, f: fit(S.bag, a) }));
+  const pass = rows.filter(r => r.f.ok).length;
+  $('#vSum').textContent = `Fits ${pass} of ${rows.length} allowances. Size only — weight is still yours to check.`;
+  let html = '', grp = null;
+  for (const { a, f } of rows){
+    if (a.grp !== grp){ grp = a.grp; html += `<p class="vgrp">${grp}</p>`; }
+    html += `<div class="vrow ${f.ok?'ok':'bad'}">
+      <span class="st">${f.ok?'PASS':'FAIL'}</span>
+      <span class="nm"><b>${a.name}</b><span class="num">${a.sum?`total ≤ ${a.sum} cm`:a.dims.join('×')+' cm'}${a.kg?` · ${a.kg} kg`:''}</span></span>
+      <span class="dt">${f.note}</span></div>`;
+  }
+  $('#vList').innerHTML = html;
+}
+
+/* ---------- AR ---------- */
+let xrSession=null, refSpace=null, hitSource=null;
+async function startAR(){
+  try{
+    const s = await navigator.xr.requestSession('immersive-ar', {
+      requiredFeatures:['hit-test'], optionalFeatures:['dom-overlay'], domOverlay:{ root: $('#ui') }
+    });
+    xrSession = s; S.ar = true;
+    renderer.xr.setReferenceSpaceType('local');
+    await renderer.xr.setSession(s);
+    refSpace = renderer.xr.getReferenceSpace();
+    hitSource = await s.requestHitTestSource({ space: await s.requestReferenceSpace('viewer') });
+    s.addEventListener('select', () => { if (S.mode==='scan' && S.found) place(); });
+    s.addEventListener('end', () => { hitSource=null; xrSession=null; S.ar=false; goIntro(); });
+    previewSet.visible = false; controls.enabled = false;
+    enterScan();
+  }catch(err){ S.ar=false; toast('AR could not start'); console.error(err); }
+}
+function enterScan(){ anchor.visible=false; S.found=false; $('#btnLock').disabled=true; $('#guideText').textContent='Point at the floor'; showUI('scan'); }
+const _m = new THREE.Matrix4(), _n = new THREE.Vector3();
+function handleHits(frame){
+  let ok = false;
+  for (const h of frame.getHitTestResults(hitSource)){
+    const pose = h.getPose(refSpace); if (!pose) continue;
+    _m.fromArray(pose.transform.matrix);
+    _n.setFromMatrixColumn(_m,1);
+    if (_n.y > .8){ ok = true; reticle.matrix.copy(_m); break; }
+  }
+  reticle.visible = ok;
+  if (ok !== S.found){
+    S.found = ok; $('#btnLock').disabled = !ok;
+    $('#guideText').textContent = ok ? 'Floor found' : 'Point at the floor';
+  }
+}
+function place(){
+  const p = new THREE.Vector3(), q = new THREE.Quaternion(), sc = new THREE.Vector3();
+  reticle.matrix.decompose(p,q,sc);
+  camera.updateMatrixWorld();
+  const cam = new THREE.Vector3().setFromMatrixPosition(camera.matrixWorld);
+  anchor.position.copy(p);
+  anchor.rotation.set(0, Math.atan2(cam.x-p.x, cam.z-p.z), 0);
+  anchor.visible = true; reticle.visible = false;
+  buzz(); showUI('placed'); setPane(S.pane);
+}
+
+/* ---------- Preview ---------- */
+function startPreview(){
+  S.ar = false;
+  previewSet.visible = true;
+  anchor.position.set(0,0,0); anchor.rotation.set(0,0,0); anchor.visible = true;
+  camera.position.set(.72, .92, 1.62); controls.target.set(0,.02,0); controls.enabled = true; controls.update();
+  showUI('placed'); setPane('check');
+}
+function goIntro(){ anchor.visible=false; previewSet.visible=false; controls.enabled=false; showUI('intro'); }
+
+/* ---------- Quick Look (iPhone) ---------- */
+const IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
+let QL = IOS; try{ QL = QL || document.createElement('a').relList.supports('ar'); }catch(e){}
+function exportFrame(h, w, d){
+  const g = new THREE.Group(), H=h/100, W=w/100, D=d/100, half=T/2;
+  const fm = new THREE.MeshStandardMaterial({ color:YELLOW, roughness:.45, metalness:.25 });
+  const cm = new THREE.MeshStandardMaterial({ color:INK, roughness:.5 });
+  const geos = [];
+  const push = (geo, mat, x, y, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x,y,z); g.add(m); geos.push(geo); };
+  for (const y of [half, H-half]) for (const z of [-D/2+half, D/2-half]) push(new THREE.BoxGeometry(W,T,T), fm, 0, y, z);
+  for (const y of [half, H-half]) for (const x of [-W/2+half, W/2-half]) push(new THREE.BoxGeometry(T,T,D), fm, x, y, 0);
+  for (const x of [-W/2+half, W/2-half]) for (const z of [-D/2+half, D/2-half]) push(new THREE.BoxGeometry(T,H,T), fm, x, H/2, z);
+  for (const y of [half, H-half]) for (const x of [-W/2+half, W/2-half]) for (const z of [-D/2+half, D/2-half])
+    push(new RoundedBoxGeometry(T*2.3,T*2.3,T*2.3,2,.006), cm, x, y, z);
+  return { group:g, dispose(){ geos.forEach(x=>x.dispose()); fm.dispose(); cm.dispose(); } };
+}
+async function viewInRoom(){
+  const b = $('#btnRoom'); if (b.disabled) return;
+  b.disabled = true; b.textContent = 'Preparing…';
+  const dims = S.pane==='check' ? S.airline.dims : S.bag;
+  const built = exportFrame(dims[0], dims[1], dims[2]);
+  try{
+    const out = new THREE.Scene(); out.add(built.group); out.updateMatrixWorld(true);
+    const data = await new USDZExporter().parse(out, { quickLookCompatible:true });
+    const url = URL.createObjectURL(new Blob([data], { type:'model/vnd.usdz+zip' }));
+    const a = document.createElement('a');
+    a.rel = 'ar'; a.appendChild(document.createElement('img'));
+    a.href = url; a.download = 'fit-karega-cage.usdz'; a.click();
+    setTimeout(()=>URL.revokeObjectURL(url), 120000);
+  }catch(err){ console.error(err); toast('Could not open AR view'); }
+  finally{ built.dispose(); b.disabled=false; b.textContent='View in your room'; }
+}
+
+/* ---------- Loop ---------- */
+renderer.setAnimationLoop((t, frame) => {
+  if (frame && hitSource && S.mode==='scan') handleHits(frame);
+  if (!S.ar && controls.enabled) controls.update();
+  renderer.render(scene, camera);
+});
+addEventListener('resize', () => {
+  if (renderer.xr.isPresenting) return;
+  camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+/* ---------- Wiring ---------- */
+document.querySelectorAll('.px').forEach(el => el.addEventListener('beforexrselect', e => e.preventDefault()));
+$('#btnAR').addEventListener('click', startAR);
+$('#btnPreview').addEventListener('click', startPreview);
+$('#btnExit').addEventListener('click', () => { if (xrSession) xrSession.end(); else goIntro(); });
+$('#btnLock').addEventListener('click', place);
+$('#btnMove').addEventListener('click', () => { if (S.ar) enterScan(); else toast('Drag to orbit'); });
+$('#btnRoom').addEventListener('click', viewInRoom);
+$('#btnBack').addEventListener('click', () => showUI('placed'));
+$('#btnVerdict').addEventListener('click', () => { renderVerdict(); showUI('verdict'); });
+document.querySelectorAll('.seg [role=tab]').forEach(b => b.addEventListener('click', () => setPane(b.dataset.mode)));
+$('#airRow').addEventListener('click', e => {
+  const b = e.target.closest('[data-air]'); if (!b) return;
+  S.airline = AIRLINES.find(a => a.id===b.dataset.air);
+  renderAirlines(); setPane(S.pane); buzz();
+});
+const SLIDERS = { sH:[0,'#oH'], sW:[1,'#oW'], sD:[2,'#oD'] };
+for (const id in SLIDERS){
+  $('#'+id).addEventListener('input', e => {
+    const [i, out] = SLIDERS[id];
+    S.bag[i] = +e.target.value; S.measured = true;
+    $(out).textContent = e.target.value + ' cm';
+    applyCage(); renderStatus();
+  });
+}
+$('#btnRoom').hidden = !QL;
+renderAirlines();
+
+(async function support(){
+  let ok = false;
+  try{ ok = !!navigator.xr && await navigator.xr.isSessionSupported('immersive-ar'); }catch(e){}
+  const n = $('#support');
+  if (ok){ n.textContent = 'AR is ready on this phone. Stand your bag on a clear patch of floor.'; return; }
+  $('#btnAR').disabled = true;
+  $('#btnAR').classList.remove('primary'); $('#btnPreview').classList.add('primary');
+  if (QL){
+    $('#btnAR').hidden = true; $('#btnPreview').textContent = 'Check sizes';
+    n.textContent = 'On iPhone: pick your airline, then "View in your room" opens the cage in AR at real size.';
+  } else {
+    n.textContent = window.isSecureContext
+      ? 'This browser cannot run WebAR — open the link in Chrome on an ARCore Android phone, or use the 3D preview.'
+      : 'AR needs a secure https link. Open the hosted link on a phone.';
+  }
+})();
+showUI('intro');
+</script>
+</body>
+</html>
